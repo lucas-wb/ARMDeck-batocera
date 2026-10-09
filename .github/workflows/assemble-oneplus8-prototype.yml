@@ -144,7 +144,7 @@ jobs:
       - name: Inspect boot image and verify the Batocera handoff is present
         run: |
           set -euo pipefail
-          ./scripts/inspect-android-boot-image.sh staging/boot.img staging/boot-image-inspection.txt
+          bash scripts/inspect-android-boot-image.sh staging/boot.img staging/boot-image-inspection.txt
 
       - name: Assemble and validate nested super image
         env:
@@ -154,8 +154,8 @@ jobs:
           set -euo pipefail
           extra=staging/rufomaculata
           [[ -f "$extra" ]] || extra=-
-          sudo ./build-super-image.sh staging/rootfs.squashfs staging/super.img "$SUPER_BYTES" "$extra" "$BOOT_MIB"
-          sudo ./validate-super-image.sh staging/super.img "$SUPER_BYTES" | tee staging/super-image-validation.txt
+          sudo bash build-super-image.sh staging/rootfs.squashfs staging/super.img "$SUPER_BYTES" "$extra" "$BOOT_MIB"
+          sudo bash validate-super-image.sh staging/super.img "$SUPER_BYTES" | tee staging/super-image-validation.txt
           test -s staging/super.img.sparse
           python3 - staging/super.img.sparse "$SUPER_BYTES" <<'PYSPARSE'
           import struct, sys

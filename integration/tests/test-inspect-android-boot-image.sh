@@ -47,10 +47,10 @@ INIT
 printf 'synthetic boot image\n' > "$tmp/boot.img"
 export PATH="$tmp/bin:$PATH"
 make_ramdisk yes
-"$repo_root/scripts/inspect-android-boot-image.sh" "$tmp/boot.img" "$tmp/pass-report.txt" >/dev/null
+bash "$repo_root/scripts/inspect-android-boot-image.sh" "$tmp/boot.img" "$tmp/pass-report.txt" >/dev/null
 grep -Fx 'RESULT=PASS' "$tmp/pass-report.txt" >/dev/null
 make_ramdisk no
-if "$repo_root/scripts/inspect-android-boot-image.sh" "$tmp/boot.img" "$tmp/fail-report.txt" >/dev/null 2>&1; then
+if bash "$repo_root/scripts/inspect-android-boot-image.sh" "$tmp/boot.img" "$tmp/fail-report.txt" >/dev/null 2>&1; then
   echo 'Inspector unexpectedly accepted a ramdisk without the handoff markers.' >&2
   exit 1
 fi
