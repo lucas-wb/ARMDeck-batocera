@@ -29,4 +29,4 @@ The release notes must state the expected first-boot behavior and a tested recov
 
 ## Prototype status
 
-The prototype assembly workflow may produce generated `boot.img` and `super.img` files for inspection, but neither is verified or boot-tested on IN2017. The bundle deliberately includes no installer. It is **not safe to flash**.
+The local `scripts/assemble-local.sh` script may produce generated `boot.img` and `super.img` files for inspection, but neither is verified or boot-tested on IN2017. The bundle deliberately includes no installer. It is **not safe to flash**.

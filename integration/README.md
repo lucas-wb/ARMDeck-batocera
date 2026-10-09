@@ -5,14 +5,14 @@ This integration replaces the earlier `/init` wrapper approach with a handoff fr
 ## Files
 
 - `postmarketos-initramfs/0001-armdeck-batocera-handoff.patch`: after the normal PMOS subpartition setup, checks for `armdeck.batocera=1`, finds the physical `super` block device by `PARTLABEL=super` (or optional `superdev=` override), maps its embedded MBR partitions with `kpartx`, finds the `BATOCERA_BOOT` filesystem, and `exec`s the staged Batocera init as PID 1.
-- `prepare-pmaports-handoff.sh`: workflow helper that patches the pinned pmaports source package, updates the affected local-source checksums, stages the Batocera init in the OnePlus device package, and enables the selector kernel argument. It fails if expected source anchors have changed.
-- `stage-batocera-init.sh`: older manual staging helper. The workflow uses `prepare-pmaports-handoff.sh` so the init is packaged into the initramfs through the device package.
+- `prepare-pmaports-handoff.sh`: local build helper that patches the pinned pmaports source package, updates the affected local-source checksums, stages the Batocera init in the OnePlus device package, and enables the selector kernel argument. It fails if expected source anchors have changed.
+- `stage-batocera-init.sh`: older manual staging helper. The local build script uses `prepare-pmaports-handoff.sh` so the init is packaged into the initramfs through the device package.
 - `device-package/00-armdeck-batocera.files`: mkinitfs file-list entry to include `/init.batocera` in the initramfs.
 - `device-package/kernel-cmdline.conf.example`: selector flag. Preserve existing command-line entries; do not blindly replace the current file.
 
 ## Integration order
 
-1. The automated workflow checks out exact ARMDeck, pmaports, and Batocera commit SHAs.
+1. `scripts/build-armdeck-local.sh` checks out exact ARMDeck, pmaports, and Batocera commit SHAs.
 2. `prepare-pmaports-handoff.sh` applies the initramfs patch, updates the checksum for the modified local `init_2nd.sh`, ensures `multipath-tools` is a package dependency, patches Batocera init's devtmpfs and direct-device mount behavior, and adds it to the device package's mkinitfs file list.
 3. Build `postmarketos-initramfs`, the OnePlus kernel, firmware, audio, and device package before `pmbootstrap install` regenerates the boot image.
 4. Inspect the generated initramfs archive and confirm `/init_2nd.sh`, `/init.batocera`, `blkid`, `kpartx`, and required filesystem tools are present before attempting to boot.
