@@ -1,0 +1,214 @@
+name: Assemble OnePlus 8 Batocera prototype (not a release)
+
+# This joins outputs from two successful upstream build runs. It creates an
+# inspection bundle only; it does not publish a GitHub Release or flash a phone.
+on:
+  workflow_dispatch:
+    inputs:
+      batocera_run_id:
+        description: Successful run ID of Build Batocera SM8250 baseline
+        required: true
+        type: string
+      batocera_ref:
+        description: Exact Batocera commit SHA used by that run
+        required: true
+        type: string
+      armdeck_run_id:
+        description: Successful run ID of the ARMDeck integrated handoff build
+        required: true
+        type: string
+      armdeck_ref:
+        description: Exact ARMDeck commit SHA used by that run
+        required: true
+        type: string
+      super_bytes:
+        description: Exact IN2017 super partition size in bytes; must be measured, never guessed
+        required: true
+        type: string
+      boot_mib:
+        description: Size of nested Batocera boot filesystem in MiB
+        required: true
+        default: "6144"
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: assemble-oneplus8-${{ inputs.batocera_ref }}-${{ inputs.armdeck_ref }}-${{ inputs.super_bytes }}
+  cancel-in-progress: false
+
+jobs:
+  assemble:
+    runs-on: [self-hosted, linux, x64, batocera-builder]
+    timeout-minutes: 180
+    steps:
+      - name: Check out integration scripts and docs
+        uses: actions/checkout@v4
+
+      - name: Validate inputs and image-building host
+        env:
+          BATOCERA_RUN_ID: ${{ inputs.batocera_run_id }}
+          BATOCERA_REF: ${{ inputs.batocera_ref }}
+          ARMDECK_RUN_ID: ${{ inputs.armdeck_run_id }}
+          ARMDECK_REF: ${{ inputs.armdeck_ref }}
+          SUPER_BYTES: ${{ inputs.super_bytes }}
+          BOOT_MIB: ${{ inputs.boot_mib }}
+        run: |
+          set -euo pipefail
+          [[ "$BATOCERA_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$ARMDECK_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$BATOCERA_REF" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$ARMDECK_REF" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "$SUPER_BYTES" =~ ^[0-9]+$ ]]
+          [[ "$BOOT_MIB" =~ ^[0-9]+$ ]]
+          (( SUPER_BYTES > 0 && SUPER_BYTES % 4096 == 0 && BOOT_MIB >= 1024 )) || {
+            echo 'super_bytes must be a positive 4096-byte-aligned capacity; boot_mib must be at least 1024.' >&2
+            exit 2
+          }
+          command -v sudo
+          sudo -n true
+          for tool in git find sha256sum sfdisk losetup mkfs.ext4 mount umount blkid file img2simg python3 readlink truncate blockdev install sync du df awk tail tr seq stat mountpoint cpio gzip grep sort; do
+            command -v "$tool" >/dev/null || { echo "Missing required host tool: $tool" >&2; exit 1; }
+          done
+          command -v unpack_bootimg.py >/dev/null 2>&1 || command -v unpack_bootimg >/dev/null 2>&1 || {
+            echo 'Missing Android boot-image inspection tool: install unpack_bootimg.py or unpack_bootimg.' >&2
+            exit 1
+          }
+          sudo losetup -f >/dev/null
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Download exact Batocera baseline artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: batocera-sm8250-baseline-${{ inputs.batocera_ref }}
+          path: downloads/batocera
+          run-id: ${{ inputs.batocera_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact ARMDeck handoff artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: armdeck-oneplus8-intermediate-${{ inputs.armdeck_ref }}
+          path: downloads/armdeck
+          run-id: ${{ inputs.armdeck_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Select and verify build outputs
+        env:
+          BATOCERA_REF: ${{ inputs.batocera_ref }}
+          ARMDECK_REF: ${{ inputs.armdeck_ref }}
+        run: |
+          set -euo pipefail
+          mapfile -t rootfs_candidates < <(find downloads/batocera -type f -name rootfs.squashfs -size +0c)
+          [[ ${#rootfs_candidates[@]} -eq 1 ]] || {
+            echo "Expected exactly one rootfs.squashfs in Batocera artifact; found ${#rootfs_candidates[@]}" >&2
+            find downloads/batocera -type f -printf '%p (%s bytes)\n' | sort
+            exit 1
+          }
+          mapfile -t boot_candidates < <(find downloads/armdeck -type f -name boot.img -size +0c)
+          [[ ${#boot_candidates[@]} -eq 1 ]] || {
+            echo "Expected exactly one boot.img in ARMDeck artifact; found ${#boot_candidates[@]}" >&2
+            find downloads/armdeck -type f -printf '%p (%s bytes)\n' | sort
+            exit 1
+          }
+          mkdir -p staging bundle
+          cp "${rootfs_candidates[0]}" staging/rootfs.squashfs
+          cp "${boot_candidates[0]}" staging/boot.img
+          mapfile -t extra_candidates < <(find downloads/batocera -type f -name rufomaculata -size +0c)
+          if [[ ${#extra_candidates[@]} -gt 1 ]]; then
+            echo 'More than one rufomaculata layer found; refusing ambiguous assembly.' >&2
+            exit 1
+          fi
+          if [[ ${#extra_candidates[@]} -eq 1 ]]; then
+            cp "${extra_candidates[0]}" staging/rufomaculata
+          fi
+          mapfile -t dtbo_candidates < <(find downloads/armdeck -type f -name dtbo.img -size +0c)
+          if [[ ${#dtbo_candidates[@]} -gt 1 ]]; then
+            echo 'More than one dtbo.img found; refusing ambiguous assembly.' >&2
+            exit 1
+          fi
+          [[ -s downloads/batocera/source-manifest.env ]] || { echo 'Missing Batocera source manifest' >&2; exit 1; }
+          [[ -s downloads/armdeck/source-manifest.env ]] || { echo 'Missing ARMDeck source manifest' >&2; exit 1; }
+          grep -Fx "BATOCERA_COMMIT=$BATOCERA_REF" downloads/batocera/source-manifest.env
+          grep -Fx "BATOCERA_COMMIT=$BATOCERA_REF" downloads/armdeck/source-manifest.env
+          grep -Fx "ARMDECK_COMMIT=$ARMDECK_REF" downloads/armdeck/source-manifest.env
+          cp downloads/batocera/source-manifest.env staging/batocera-source-manifest.env
+          cp downloads/armdeck/source-manifest.env staging/armdeck-source-manifest.env
+          [[ ! -f downloads/armdeck/pmaports-handoff.diff ]] || cp downloads/armdeck/pmaports-handoff.diff staging/
+          [[ ! -f downloads/armdeck/pmaports-handoff.diff.sha256 ]] || cp downloads/armdeck/pmaports-handoff.diff.sha256 staging/
+          if [[ ${#dtbo_candidates[@]} -eq 1 ]]; then cp "${dtbo_candidates[0]}" staging/dtbo.img; fi
+          sha256sum staging/* > staging/SHA256SUMS
+
+      - name: Inspect boot image and verify the Batocera handoff is present
+        run: |
+          set -euo pipefail
+          ./scripts/inspect-android-boot-image.sh staging/boot.img staging/boot-image-inspection.txt
+
+      - name: Assemble and validate nested super image
+        env:
+          SUPER_BYTES: ${{ inputs.super_bytes }}
+          BOOT_MIB: ${{ inputs.boot_mib }}
+        run: |
+          set -euo pipefail
+          extra=staging/rufomaculata
+          [[ -f "$extra" ]] || extra=-
+          sudo ./build-super-image.sh staging/rootfs.squashfs staging/super.img "$SUPER_BYTES" "$extra" "$BOOT_MIB"
+          sudo ./validate-super-image.sh staging/super.img "$SUPER_BYTES" | tee staging/super-image-validation.txt
+          test -s staging/super.img.sparse
+          python3 - staging/super.img.sparse "$SUPER_BYTES" <<'PYSPARSE'
+          import struct, sys
+          path, expected = sys.argv[1], int(sys.argv[2])
+          with open(path, 'rb') as f:
+              header = f.read(28)
+          if len(header) != 28:
+              raise SystemExit('Android sparse image header is truncated')
+          magic, major, minor, file_hdr_sz, chunk_hdr_sz, blk_sz, total_blks, total_chunks, checksum = struct.unpack('<IHHHHIIII', header)
+          if magic != 0xED26FF3A:
+              raise SystemExit(f'Not an Android sparse image: magic=0x{magic:08x}')
+          if blk_sz * total_blks != expected:
+              raise SystemExit(f'Sparse image logical size {blk_sz * total_blks} != expected super size {expected}')
+          print(f'Android sparse header valid: {total_chunks} chunks, logical size {expected} bytes')
+          PYSPARSE
+          cp staging/boot.img bundle/boot.img
+          cp staging/super.img.sparse bundle/super.img
+          [[ ! -f staging/dtbo.img ]] || cp staging/dtbo.img bundle/dtbo.img
+          cp docs/FLASHING.md docs/BUILDING.md docs/RELEASES.md docs/CI-STATUS.md README.md bundle/
+          cp staging/boot-image-inspection.txt bundle/
+          cp staging/batocera-source-manifest.env staging/armdeck-source-manifest.env bundle/
+          [[ ! -f staging/pmaports-handoff.diff ]] || cp staging/pmaports-handoff.diff bundle/
+          [[ ! -f staging/pmaports-handoff.diff.sha256 ]] || cp staging/pmaports-handoff.diff.sha256 bundle/
+          {
+            echo 'ARTIFACT_CLASS=prototype-not-for-flashing'
+            echo "BATOCERA_COMMIT=${{ inputs.batocera_ref }}"
+            echo "ARMDECK_COMMIT=${{ inputs.armdeck_ref }}"
+            echo "SUPER_BYTES=$SUPER_BYTES"
+            echo "BOOT_MIB=$BOOT_MIB"
+            echo "ROOTFS_SHA256=$(sha256sum staging/rootfs.squashfs | cut -d' ' -f1)"
+            echo "BOOT_IMAGE_SHA256=$(sha256sum bundle/boot.img | cut -d' ' -f1)"
+            echo "SUPER_SPARSE_SHA256=$(sha256sum bundle/super.img | cut -d' ' -f1)"
+            if [[ -f bundle/dtbo.img ]]; then echo "DTBO_SHA256=$(sha256sum bundle/dtbo.img | cut -d' ' -f1)"; fi
+            echo 'HARDWARE_TESTED=false'
+            echo 'INSTALLER_INCLUDED=false'
+            echo 'BOOT_IMAGE_STATIC_INSPECTION=passed'
+          } > bundle/BUILD-MANIFEST.env
+          cp staging/super-image-validation.txt bundle/
+          (cd bundle && find . -maxdepth 1 -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+          {
+            echo '## OnePlus 8 Batocera assembly prototype'
+            echo
+            echo '**Do not flash.** The image layout and initramfs handoff have not been validated on the T-Mobile IN2017. This job only assembles and statically validates the images.'
+            echo
+            cat bundle/BUILD-MANIFEST.env
+            echo
+            cat bundle/super-image-validation.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload assembled inspection bundle (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: oneplus8-batocera-prototype-${{ github.run_id }}
+          path: bundle/
+          if-no-files-found: error
+          retention-days: 30

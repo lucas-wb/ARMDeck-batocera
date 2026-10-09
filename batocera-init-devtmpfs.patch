@@ -1,0 +1,21 @@
+--- a/package/batocera/boot/batocera-initramfs/init
++++ b/package/batocera/boot/batocera-initramfs/init
+@@ -15 +15,2 @@
+-    mount -t devtmpfs none /dev
++    # ARMDeck mounted devtmpfs before kpartx. Avoid hiding /dev/mapper nodes.
++    grep -q ' /dev devtmpfs ' /proc/mounts || mount -t devtmpfs none /dev
+@@ -26,6 +27,14 @@ do_root() {
+     MOUNTARG=none
+     boot_root_mounted=n
+     MOUNTOPTIONS=none
++    # ARMDeck resolves the nested boot filesystem and exports it. Keep the stock
++    # dev/label/uuid lookup as fallback for ordinary Batocera boots.
++    if [ -n "${BATOCERA_BOOT_DEV:-}" ]
++    then
++        MOUNTARG=${BATOCERA_BOOT_DEV}
++        if do_mount "${MOUNTARG}"; then boot_root_mounted=y; else return 1; fi
++        echo "Mounted ${MOUNTARG} as /boot_root"
++    fi
+     while [ $boot_root_mounted = n ]
+     do
+         for param in ${cmdline}

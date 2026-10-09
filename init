@@ -1,0 +1,56 @@
+#!/bin/ash
+# ARMDeck first-stage init for Batocera. Package as /init in the Android boot ramdisk.
+# Required tools: kpartx, blkid, mount, grep, head, sleep, ash.
+# Required kernel support: devtmpfs, proc, sysfs, device mapper + linear target, ext4.
+# Keep the stock Batocera init as /init.batocera and stage it with prepare-initramfs.sh.
+
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+export PATH
+
+fail() {
+    echo "ARMDeck Batocera init: ERROR: $*" >&2
+    echo 'Dropping to initramfs shell; no phone partitions were flashed or altered.' >&2
+    exec /bin/ash
+}
+
+mkdir -p /dev /proc /sys
+# Mount proc first so /proc/mounts can reliably tell us whether devtmpfs already exists.
+mount -t proc proc /proc 2>/dev/null || grep -q ' /proc proc ' /proc/mounts || fail 'cannot mount proc'
+mount -t sysfs sysfs /sys 2>/dev/null || grep -q ' /sys sysfs ' /proc/mounts || fail 'cannot mount sysfs'
+# The stock init must not mount a second devtmpfs over /dev; that would hide /dev/mapper.
+grep -q ' /dev devtmpfs ' /proc/mounts || mount -t devtmpfs devtmpfs /dev || fail 'cannot mount devtmpfs'
+
+CMDLINE=$(cat /proc/cmdline)
+SUPERDEV=
+for arg in $CMDLINE; do
+    case "$arg" in
+        superdev=*) SUPERDEV=${arg#superdev=} ;;
+    esac
+done
+[ -n "$SUPERDEV" ] || fail 'missing superdev=<block-device> kernel argument'
+[ -b "$SUPERDEV" ] || fail "super device is not a block device: $SUPERDEV"
+
+# Map the MBR partitions embedded in the physical Android super block device.
+kpartx -avs "$SUPERDEV" || fail "kpartx could not map embedded partitions in $SUPERDEV"
+
+# Resolve by a fixed label, not a UUID that would have to be regenerated into boot.img.
+FOUND=
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    for candidate in /dev/mapper/*; do
+        [ -b "$candidate" ] || continue
+        LABEL=$(blkid -s LABEL -o value "$candidate" 2>/dev/null || true)
+        if [ "$LABEL" = BATOCERA_BOOT ]; then
+            FOUND=$candidate
+            break
+        fi
+    done
+    [ -n "$FOUND" ] && break
+    sleep 1
+done
+[ -n "$FOUND" ] || fail "BATOCERA_BOOT label not found after mapping $SUPERDEV"
+[ -x /init.batocera ] || fail 'stock Batocera init is missing at /init.batocera'
+
+# The staging script patches stock init to mount this resolved device first.
+BATOCERA_BOOT_DEV=$FOUND
+export BATOCERA_BOOT_DEV
+exec /init.batocera

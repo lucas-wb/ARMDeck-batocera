@@ -1,0 +1,3 @@
+# Keep existing ARMDeck cmdline options and append this flag to select Batocera.
+# Do not use until the target's super block-device path has been confirmed.
+armdeck.batocera

@@ -1,0 +1,4 @@
+# Copy this into the device package's kernel-cmdline.conf only after verifying
+# the actual block-device path from the IN2017's booted ARMDeck kernel.
+# Existing ARMDeck docs suggest /dev/sda14, but that path is not verified on IN2017.
+# superdev=/dev/sda14

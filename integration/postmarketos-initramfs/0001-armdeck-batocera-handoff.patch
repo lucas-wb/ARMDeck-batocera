@@ -1,0 +1,41 @@
+--- a/init_2nd.sh
++++ b/init_2nd.sh
+@@ -3,3 +3,38 @@
+ run_hooks /hooks
+ mount_subpartitions
++
++# ARMDeck Batocera handoff. This code runs in init_2nd.sh itself (PID 1),
++# unlike initfs hooks, which run in child shells and cannot safely switch_root.
++if grep -q 'armdeck.batocera=1' /proc/cmdline; then
++	batocera_super_dev=""
++	for batocera_arg in $(cat /proc/cmdline); do
++		case "$batocera_arg" in
++			superdev=*) batocera_super_dev="${batocera_arg#superdev=}" ;;
++		esac
++	done
++	if [ -z "$batocera_super_dev" ]; then
++		batocera_super_dev=$(blkid -t PARTLABEL=super -o device 2>/dev/null | head -n 1)
++	fi
++	if [ -b "$batocera_super_dev" ]; then
++		# Existing mappings are acceptable; verify by label below.
++		kpartx -avs "$batocera_super_dev" >/dev/kmsg 2>&1 || true
++	fi
++	batocera_boot_dev=""
++	for batocera_dev in /dev/mapper/*; do
++		[ -b "$batocera_dev" ] || continue
++		batocera_label=$(blkid -s LABEL -o value "$batocera_dev" 2>/dev/null) || continue
++		if [ "$batocera_label" = "BATOCERA_BOOT" ]; then
++			batocera_boot_dev="$batocera_dev"
++			break
++		fi
++	done
++	if [ -n "$batocera_boot_dev" ] && [ -x /init.batocera ]; then
++		export BATOCERA_BOOT_DEV="$batocera_boot_dev"
++		echo "ARMDeck: handing off to Batocera from $BATOCERA_BOOT_DEV" > /dev/kmsg
++		exec /init.batocera
++	fi
++	echo "ARMDeck: Batocera requested but super/BATOCERA_BOOT was not found" > /dev/kmsg
++	fail_halt_boot
++fi
++
+ mount_root
