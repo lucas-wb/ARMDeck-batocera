@@ -61,7 +61,8 @@ Next:
   2. Run: docker info
   3. Check available disk space; allow at least 200-250 GB for Batocera source/build
      data, plus additional room for ARMDeck/pmaports caches and image assembly.
-  4. Read docs/BUILDING.md and use the local build scripts with exact source SHAs.
+  4. Read docs/BUILDING.md. Batocera defaults to the latest stable upstream release;
+     ARMDeck and pmaports still use explicit commit SHAs.
   5. Run `pmbootstrap init` once interactively for your chosen build configuration.
 
 The `mkbootimg` package provides Android's boot-image inspection utilities on supported

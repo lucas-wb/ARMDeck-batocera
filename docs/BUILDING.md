@@ -42,31 +42,51 @@ If the host has less than 200 GiB free in the current filesystem, the check fail
 
 ## 2. Build official Batocera SM8250 userspace
 
-Use the exact 40-character SHA for the official `batocera-linux/batocera.linux` repository. Do not use a community fork or a third-party image.
+By default, the script detects the latest **stable release version** from the official Batocera changelog, selects that release's upstream branch/tag, resolves it to a commit, and records the exact SHA in the build manifest. It does not use `master` as a fallback. Do not use a community fork or a third-party image.
 
 ```bash
-bash scripts/build-batocera-local.sh <BATOCERA_COMMIT_SHA> "$PWD/build-local"
+bash scripts/build-batocera-local.sh
 ```
 
-The script clones the official repository at that exact commit, initializes submodules, builds the official Docker development image, and runs `make sm8250-build`. It writes logs to `build-local/batocera-build.log`, a source manifest and checksums to `build-local/output-artifacts/batocera/`, and copies image outputs from `output/sm8250/images`.
+Optionally provide a workspace directory while retaining the latest-release default:
 
-This is the generic upstream SM8250 target, **not a OnePlus 8 image**. The script fails if the expected output directory or image artifacts are missing. If the official target name or output layout changes at the pinned commit, stop and inspect the build tree instead of guessing a replacement path.
+```bash
+bash scripts/build-batocera-local.sh latest "$PWD/build-local"
+```
+
+To reproduce a prior build, you can still pass an exact SHA or an official branch/tag:
+
+```bash
+bash scripts/build-batocera-local.sh <BATOCERA_SHA_OR_REF> "$PWD/build-local"
+```
+
+The resolver is `scripts/resolve-batocera-release.sh`. It reads the latest dated stable-version heading from the official upstream changelog, prefers the corresponding `batocera-<major>` branch, and then checks exact release/major tags. If it cannot resolve a matching official ref, it stops instead of silently building development `master`. The build initializes submodules, builds the official Docker development image, and runs `make sm8250-build`. Logs go to `build-local/batocera-build.log`; the source manifest and checksums go to `build-local/output-artifacts/batocera/`.
+
+This is the generic upstream SM8250 target, **not a OnePlus 8 image**. The manifest records release version, selected ref, exact commit SHA, and official repository URL. The script fails if the expected output directory or image artifacts are missing. If the official target name or output layout changes, inspect the build tree instead of guessing a replacement path.
 
 ## 3. Build ARMDeck's OnePlus boot chain with the handoff
 
-Use exact 40-character commit SHAs for the ARMDeck fork, pmaports, and the official Batocera repository:
+ARMDeck and pmaports remain pinned to exact 40-character commit SHAs. Batocera no longer requires a SHA by default: the script uses the exact commit in `build-local/output-artifacts/batocera/source-manifest.env` when that manifest exists, so the boot chain matches the already-built userspace. If no Batocera build manifest exists, it resolves the latest official stable release automatically.
+
+```bash
+bash scripts/build-armdeck-local.sh \
+  <ARMDECK_COMMIT_SHA> \
+  <PMAPORTS_COMMIT_SHA>
+```
+
+To explicitly request the latest stable Batocera release (or use a custom workspace), pass `latest` as the third argument:
 
 ```bash
 bash scripts/build-armdeck-local.sh \
   <ARMDECK_COMMIT_SHA> \
   <PMAPORTS_COMMIT_SHA> \
-  <BATOCERA_COMMIT_SHA> \
+  latest \
   "$PWD/build-local"
 ```
 
-This clones pinned sources, overlays the ARMDeck OnePlus device packages into the pinned pmaports checkout, applies the project's Batocera handoff, stages Batocera's stock init, and builds the initramfs, kernel, firmware, audio package, and device package with pmbootstrap. It then exports the intermediate boot artifacts.
+You may also pass an official Batocera branch, tag, or exact SHA as the third argument. `BATOCERA_REF` can be set in the environment to override automatic selection. The script clones/resolves Batocera only from the official repository, overlays the ARMDeck OnePlus device packages into the pmaports checkout, applies the project's Batocera handoff, stages Batocera's stock init, and builds the initramfs, kernel, firmware, audio package, and device package with pmbootstrap. It then exports the intermediate boot artifacts.
 
-The script refuses to overwrite source directories. If a build is interrupted after the handoff was applied, use a fresh workspace for the next attempt; do not apply the patch twice to a modified pmaports checkout. The ARMDeck and pmaports package definitions are changing projects, so the first real build may reveal incompatibilities that synthetic tests cannot catch.
+The script refuses to overwrite source directories. If a build is interrupted after the handoff was applied, use a fresh workspace for the next attempt; do not apply the patch twice to a modified pmaports checkout. The ARMDeck and pmaports package definitions are changing projects, so the first real build may reveal incompatibilities that synthetic tests cannot catch. Their exact commit SHAs are recorded in the manifest.
 
 Outputs are under `build-local/output-artifacts/armdeck/`. Confirm the exported `boot.img` and source manifest exist. If the installed pmbootstrap version exports to a different location, inspect `pmbootstrap export` output and update the script deliberately; do not use a stale `/tmp/postmarketOS-export` directory.
 

@@ -8,10 +8,10 @@ There are no GitHub Actions build workflows. Use a dedicated native x86_64 Ubunt
 
 1. Provision prerequisites: `sudo bash scripts/provision-ubuntu-build-host.sh`
 2. Initialize pmbootstrap once: `pmbootstrap init`
-3. Review [`docs/BUILDING.md`](docs/BUILDING.md) for exact-SHA local build commands and artifact locations.
+3. Review [`docs/BUILDING.md`](docs/BUILDING.md) for local build commands and artifact locations. Batocera defaults to the latest official stable release; its exact resolved commit is recorded in the manifest.
 4. Run synthetic/static checks: `bash scripts/run-local-checks.sh`
 
-Batocera source must come from the official [`batocera-linux/batocera.linux`](https://github.com/batocera-linux/batocera.linux) repository. Builds must use exact commit SHAs; do not substitute third-party images or forks.
+Batocera source must come from the official [`batocera-linux/batocera.linux`](https://github.com/batocera-linux/batocera.linux) repository. The Batocera build script resolves the latest stable release by default and records the exact commit SHA for reproducibility. ARMDeck and pmaports remain explicitly pinned. Do not substitute third-party images or forks.
 
 ## Current status
 

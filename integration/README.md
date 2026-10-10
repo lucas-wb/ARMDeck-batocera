@@ -12,7 +12,7 @@ This integration replaces the earlier `/init` wrapper approach with a handoff fr
 
 ## Integration order
 
-1. `scripts/build-armdeck-local.sh` checks out exact ARMDeck, pmaports, and Batocera commit SHAs.
+1. `scripts/build-armdeck-local.sh` checks out exact ARMDeck and pmaports commit SHAs. It reuses the Batocera commit recorded by the local userspace build when available, or resolves the latest stable release from the official Batocera repository by default.
 2. `prepare-pmaports-handoff.sh` applies the initramfs patch, updates the checksum for the modified local `init_2nd.sh`, ensures `multipath-tools` is a package dependency, patches Batocera init's devtmpfs and direct-device mount behavior, and adds it to the device package's mkinitfs file list.
 3. Build `postmarketos-initramfs`, the OnePlus kernel, firmware, audio, and device package before `pmbootstrap install` regenerates the boot image.
 4. Inspect the generated initramfs archive and confirm `/init_2nd.sh`, `/init.batocera`, `blkid`, `kpartx`, and required filesystem tools are present before attempting to boot.
